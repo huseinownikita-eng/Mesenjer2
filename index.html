@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Manager Online</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    /* Стили скопированы из предыдущей версии, почти без изменений */
+    :root {
+      --bg: #0f0f1a; --surface: #1a1a2e; --surface2: #22223a; --primary: #6c5ce7;
+      --primary-hover: #7d6ff0; --accent: #00cec9; --text: #e0e0e0; --text2: #b0b0b0;
+      --danger: #e74c3c; --success: #2ecc71; --warning: #f39c12; --border: #2a2a40;
+      --radius: 10px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+    .app-container { width: 100%; max-width: 500px; height: 90vh; max-height: 800px; background: var(--surface); border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); }
+    .app-header { background: var(--surface2); padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+    .btn { padding: 8px 14px; border: none; border-radius: var(--radius); cursor: pointer; font-weight: 600; font-size: 0.85em; transition: 0.2s; background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn:hover { background: #2e2e48; }
+    .btn-primary { background: var(--primary); color: #fff; border: none; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+    .btn-danger:hover { background: var(--danger); color: #fff; }
+    .btn-accent { background: var(--accent); color: #000; border: none; }
+    .main-content { flex: 1; overflow-y: auto; padding: 10px; }
+    .auth-form { display: flex; flex-direction: column; gap: 12px; padding: 20px; max-width: 350px; margin: auto; width: 100%; }
+    .input-group { display: flex; flex-direction: column; gap: 4px; }
+    .input-group label { font-size: 0.8em; color: var(--text2); font-weight: 600; }
+    .input-group input { padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-size: 0.95em; outline: none; }
+    .random-username-display { background: var(--surface2); padding: 10px 14px; border-radius: var(--radius); text-align: center; font-weight: 700; color: var(--accent); font-size: 1.1em; border: 1px dashed var(--accent); }
+    .search-bar { display: flex; gap: 8px; padding: 8px 0; }
+    .search-bar input { flex: 1; padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface2); color: var(--text); }
+    .user-card { display: flex; align-items: center; justify-content: space-between; padding: 12px; background: var(--surface2); border-radius: var(--radius); cursor: pointer; margin-bottom: 6px; }
+    .user-card:hover { border: 1px solid var(--primary); }
+    .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--primary); display: flex; align-items: center; justify-content: center; font-weight: 700; color: #fff; }
+    .chat-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 6px 0; min-height: 200px; }
+    .message-bubble { max-width: 75%; padding: 10px 14px; border-radius: 16px; font-size: 0.9em; word-break: break-word; animation: fadeIn 0.2s; }
+    .message-bubble.sent { align-self: flex-end; background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
+    .message-bubble.received { align-self: flex-start; background: var(--surface2); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .chat-input-area { display: flex; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); }
+    .chat-input-area input { flex: 1; padding: 10px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 0.7em; font-weight: 700; }
+    .badge-admin { background: var(--warning); color: #000; }
+    .section-title { font-weight: 700; color: var(--text2); font-size: 0.8em; text-transform: uppercase; padding: 8px 4px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+    .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: var(--surface2); padding: 12px 20px; border-radius: 20px; z-index: 999; }
+  </style>
+</head>
+<body>
+<div class="app-container" id="appContainer">
+  <header class="app-header">
+    <div class="logo" style="font-weight:700;color:var(--primary);">💬 Chat<span style="color:var(--accent);">Manager</span></div>
+    <div id="headerActions" style="display:flex;gap:8px;"></div>
+  </header>
+  <div class="main-content" id="mainContent"></div>
+  <div id="toastContainer"></div>
+</div>
+
+<script>
+  (function() {
+    // ---------- Конфигурация ----------
+    const SERVER_URL = 'http://localhost:3001'; // Замени на свой URL после деплоя
+    let currentUser = null;
+    let socket = null;
+    let activeView = 'login';
+    let activeChatPartner = null;
+    let messageCache = {}; // conversationId -> массив сообщений
+
+    // ---------- UI хелперы ----------
+    function showToast(text, duration = 2500) {
+      const t = document.createElement('div'); t.className = 'toast'; t.textContent = text;
+      document.getElementById('toastContainer').appendChild(t);
+      setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, duration);
+    }
+
+    function escapeHTML(str) {
+      const div = document.createElement('div'); div.textContent = str; return div.innerHTML;
+    }
+
+    function renderHeader() {
+      const h = document.getElementById('headerActions');
+      if (!currentUser) {
+        h.innerHTML = `<button class="btn" onclick="switchView('login')">Вход</button>
+                       <button class="btn btn-primary" onclick="switchView('register')">Регистрация</button>`;
+      } else {
+        h.innerHTML = `<span>👤 ${escapeHTML(currentUser.username)}</span>
+          ${currentUser.isAdmin ? '<span class="badge badge-admin">ADMIN</span>' : ''}
+          <button class="btn" onclick="switchView('chats')">💬</button>
+          <button class="btn" onclick="switchView('search')">🔍</button>
+          <button class="btn" onclick="switchView('settings')">⚙️</button>
+          ${currentUser.isAdmin ? '<button class="btn btn-accent" onclick="switchView(\'admin\')">🛡️</button>' : ''}
+          <button class="btn btn-danger" onclick="logout()">Выйти</button>`;
+      }
+    }
+
+    window.switchView = function(view, data) {
+      activeView = view;
+      if (data && data.partner) activeChatPartner = data.partner;
+      renderHeader();
+      renderMainContent();
+    };
+
+    // ---------- API запросы ----------
+    async function api(url, method = 'GET', body = null) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentUser) headers['x-user-id'] = currentUser.id;
+      const res = await fetch(SERVER_URL + url, { method, headers, body: body ? JSON.stringify(body) : null });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Ошибка');
+      return data;
+    }
+
+    // ---------- Socket.IO ----------
+    function connectSocket() {
+      if (socket) socket.disconnect();
+      socket = io(SERVER_URL);
+      socket.on('connect', () => {
+        socket.emit('join', currentUser.id);
+      });
+      socket.on('new message', (msg) => {
+        const convId = msg.conversationId;
+        if (!messageCache[convId]) messageCache[convId] = [];
+        // Избегаем дубликатов
+        if (!messageCache[convId].find(m => m._id === msg._id)) {
+          messageCache[convId].push(msg);
+        }
+        // Если сейчас открыт этот чат – перерисовать
+        if (activeView === 'chat' && activeChatPartner) {
+          const currentConvId = getConversationId(currentUser.username, activeChatPartner);
+          if (currentConvId === convId) renderChatWindow();
+          else if (activeView === 'chats') renderChatsList();
+        }
+        if (activeView === 'chats') renderChatsList();
+      });
+    }
+
+    function getConversationId(u1, u2) {
+      return [u1, u2].sort().join('___');
+    }
+
+    // ---------- Представления ----------
+    function renderMainContent() {
+      const mc = document.getElementById('mainContent');
+      mc.innerHTML = '';
+      switch (activeView) {
+        case 'login': renderLogin(); break;
+        case 'register': renderRegister(); break;
+        case 'chats': renderChatsList(); break;
+        case 'chat': renderChatWindow(); break;
+        case 'search': renderSearch(); break;
+        case 'admin': renderAdmin(); break;
+        case 'settings': renderSettings(); break;
+      }
+    }
+
+    function renderLogin() {
+      document.getElementById('mainContent').innerHTML = `
+        <form class="auth-form" onsubmit="handleLogin(event)">
+          <h2>🔐 Вход</h2>
+          <div class="input-group"><label>Username</label><input type="text" id="loginUsername" required></div>
+          <div class="input-group"><label>Пароль</label><input type="password" id="loginPassword" required></div>
+          <button type="submit" class="btn btn-primary">Войти</button>
+          <div class="form-toggle" style="text-align:center;margin-top:8px;"><a onclick="switchView('register')">Регистрация</a></div>
+        </form>`;
+    }
+
+    function renderRegister() {
+      document.getElementById('mainContent').innerHTML = `
+        <form class="auth-form" onsubmit="handleRegister(event)">
+          <h2>✨ Регистрация</h2>
+          <p style="text-align:center;color:var(--text2);">Вам будет присвоен случайный username</p>
+          <div class="input-group"><label>Отображаемое имя</label><input type="text" id="regDisplayName" required></div>
+          <div class="input-group"><label>Пароль</label><input type="password" id="regPassword" required minlength="4"></div>
+          <button type="submit" class="btn btn-primary">Создать аккаунт</button>
+          <div class="form-toggle" style="text-align:center;margin-top:8px;"><a onclick="switchView('login')">Уже есть аккаунт?</a></div>
+        </form>`;
+    }
+
+    window.handleLogin = async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('loginUsername').value.trim();
+      const password = document.getElementById('loginPassword').value;
+      try {
+        const data = await api('/api/login', 'POST', { username, password });
+        currentUser = data.user;
+        connectSocket();
+        showToast('✅ Добро пожаловать!');
+        switchView('chats');
+      } catch (err) { showToast('❌ ' + err.message); }
+    };
+
+    window.handleRegister = async (e) => {
+      e.preventDefault();
+      const displayName = document.getElementById('regDisplayName').value.trim();
+      const password = document.getElementById('regPassword').value;
+      try {
+        const data = await api('/api/register', 'POST', { displayName, password });
+        currentUser = data.user;
+        connectSocket();
+        showToast(`✅ Аккаунт создан! Ваш username: ${data.user.username}`);
+        switchView('chats');
+      } catch (err) { showToast('❌ ' + err.message); }
+    };
+
+    window.logout = () => {
+      if (socket) socket.disconnect();
+      currentUser = null; activeChatPartner = null; messageCache = {};
+      switchView('login');
+    };
+
+    async function renderChatsList() {
+      if (!currentUser) return;
+      // Загрузим все переписки пользователя (можно через отдельный запрос, но мы уже имеем кэш)
+      const mc = document.getElementById('mainContent');
+      let html = '<div class="section-title">📩 Чаты</div>';
+      // Получим список conversationId из messageCache, где участвует currentUser
+      const myConvs = Object.keys(messageCache).filter(cid => cid.includes(currentUser.username));
+      if (myConvs.length === 0) {
+        html += '<p style="text-align:center;color:var(--text2);">Нет чатов</p>';
+      } else {
+        myConvs.forEach(cid => {
+          const msgs = messageCache[cid];
+          const lastMsg = msgs[msgs.length-1];
+          const partner = cid.split('___').find(u => u !== currentUser.username);
+          html += `<div class="user-card" onclick="switchView('chat', {partner:'${partner}'})">
+            <div class="avatar">${partner[0]}</div>
+            <div style="flex:1"><b>${partner}</b><br><small>${lastMsg ? escapeHTML(lastMsg.text.substring(0,30)) : ''}</small></div>
+          </div>`;
+        });
+      }
+      html += `<button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="switchView('search')">🔍 Поиск</button>`;
+      mc.innerHTML = html;
+    }
+
+    async function renderChatWindow() {
+      if (!currentUser || !activeChatPartner) return;
+      const convId = getConversationId(currentUser.username, activeChatPartner);
+      // Загрузим сообщения с сервера (если не в кэше) – упростим, будем полагаться на кэш и сокет
+      if (!messageCache[convId]) {
+        // Можно запросить историю, но для простоты пропустим
+        messageCache[convId] = [];
+      }
+      // Помечаем как прочитанные
+      socket.emit('mark read', { conversationId: convId, user: currentUser.username });
+      messageCache[convId].forEach(m => { if (m.to === currentUser.username) m.read = true; });
+
+      let html = `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">
+        <button class="btn" onclick="switchView('chats')">←</button>
+        <b>${escapeHTML(activeChatPartner)}</b></div>
+        <div class="chat-messages" id="chatMessages">`;
+      messageCache[convId].forEach(m => {
+        const isSent = m.from === currentUser.username;
+        html += `<div class="message-bubble ${isSent ? 'sent' : 'received'}">
+          <div>${escapeHTML(m.text)}</div>
+          <small style="opacity:0.7;">${new Date(m.timestamp).toLocaleTimeString()}</small></div>`;
+      });
+      html += `</div>
+        <div class="chat-input-area">
+          <input id="chatInput" placeholder="Сообщение..." onkeydown="if(event.key==='Enter') sendMessage()">
+          <button class="btn btn-primary" onclick="sendMessage()">➤</button>
+        </div>`;
+      document.getElementById('mainContent').innerHTML = html;
+      setTimeout(() => {
+        const el = document.getElementById('chatMessages');
+        if (el) el.scrollTop = el.scrollHeight;
+      }, 100);
+    }
+
+    window.sendMessage = () => {
+      const input = document.getElementById('chatInput');
+      if (!input || !input.value.trim() || !activeChatPartner) return;
+      socket.emit('private message', { to: activeChatPartner, text: input.value.trim() });
+      input.value = '';
+    };
+
+    async function renderSearch() {
+      document.getElementById('mainContent').innerHTML = `
+        <div class="search-bar"><input id="searchInput" placeholder="Поиск..." oninput="searchUsers()"></div>
+        <div id="searchResults"></div>`;
+    }
+
+    window.searchUsers = async () => {
+      const q = document.getElementById('searchInput').value.trim();
+      const res = document.getElementById('searchResults');
+      if (!q) { res.innerHTML = ''; return; }
+      try {
+        const users = await api(`/api/users/search?q=${encodeURIComponent(q)}`);
+        res.innerHTML = users.map(u => `
+          <div class="user-card" onclick="switchView('chat', {partner:'${u.username}'})">
+            <div class="avatar">${u.displayName[0]}</div>
+            <div><b>${escapeHTML(u.displayName)}</b> <small>@${u.username}</small></div>
+            <button class="btn btn-primary">Написать</button>
+          </div>`).join('');
+      } catch (e) { showToast('Ошибка поиска'); }
+    };
+
+    async function renderAdmin() {
+      if (!currentUser?.isAdmin) {
+        const pw = prompt('Введите пароль администратора:');
+        if (pw === 'meml20142016') {
+          try {
+            const data = await api('/api/admin/access', 'POST', { password: pw });
+            currentUser.isAdmin = true;
+            renderHeader();
+            showToast('🛡️ Админ-доступ активирован');
+          } catch (e) { showToast('❌ Ошибка'); switchView('chats'); return; }
+        } else { showToast('Неверный пароль'); switchView('chats'); return; }
+      }
+      const users = await api('/api/admin/users');
+      const convs = await api('/api/admin/conversations');
+      let html = '<h3>🛡️ Админ-панель</h3><div class="section-title">Пользователи</div>';
+      users.forEach(u => html += `<div class="user-card">
+        <span>${escapeHTML(u.displayName)} (@${u.username}) ${u.isAdmin?'<span class="badge badge-admin">ADMIN</span>':''}</span>
+        <button class="btn btn-danger" onclick="deleteUser('${u._id}')">Удалить</button>
+      </div>`);
+      html += '<div class="section-title">Переписки</div>';
+      convs.forEach(c => {
+        const parts = c._id.split('___');
+        html += `<div class="user-card">
+          <span>${parts[0]} ↔ ${parts[1]} (${c.count} сообщ.)</span>
+          <button class="btn btn-danger" onclick="deleteConv('${c._id}')">Удалить</button>
+        </div>`;
+      });
+      html += '<button class="btn" onclick="switchView(\'chats\')">← Назад</button>';
+      document.getElementById('mainContent').innerHTML = html;
+    }
+
+    window.deleteUser = async (id) => {
+      if (!confirm('Удалить пользователя?')) return;
+      await api(`/api/admin/user/${id}`, 'DELETE');
+      showToast('Удалён');
+      renderAdmin();
+    };
+    window.deleteConv = async (convId) => {
+      if (!confirm('Удалить переписку?')) return;
+      await api(`/api/admin/conversation/${convId}`, 'DELETE');
+      delete messageCache[convId];
+      showToast('Удалена');
+      renderAdmin();
+    };
+
+    function renderSettings() {
+      document.getElementById('mainContent').innerHTML = `
+        <div class="auth-form">
+          <h3>Настройки</h3>
+          <div class="input-group"><label>Отображаемое имя</label><input id="setName" value="${escapeHTML(currentUser.displayName)}"></div>
+          <button class="btn btn-primary" onclick="saveName()">Сохранить имя</button>
+          <div class="input-group"><label>Новый пароль</label><input id="setPass" type="password"></div>
+          <button class="btn btn-primary" onclick="changePass()">Сменить пароль</button>
+          <hr>
+          <button class="btn btn-accent" onclick="renderAdmin()">🛡️ Админ-доступ</button>
+          <button class="btn btn-danger" onclick="deleteAcc()">🗑️ Удалить аккаунт</button>
+          <button class="btn" onclick="switchView('chats')">← Назад</button>
+        </div>`;
+    }
+
+    window.saveName = async () => {
+      const name = document.getElementById('setName').value.trim();
+      if (!name) return showToast('Имя не может быть пустым');
+      await api('/api/user/displayName', 'PUT', { displayName: name });
+      currentUser.displayName = name;
+      showToast('Имя обновлено');
+      renderHeader();
+    };
+    window.changePass = async () => {
+      const pass = document.getElementById('setPass').value;
+      if (pass.length < 4) return showToast('Минимум 4 символа');
+      await api('/api/user/password', 'PUT', { newPassword: pass });
+      showToast('Пароль изменён');
+    };
+    window.deleteAcc = async () => {
+      if (!confirm('Удалить аккаунт навсегда?')) return;
+      await api('/api/user', 'DELETE');
+      logout();
+    };
+
+    // Инициализация
+    renderHeader();
+    renderMainContent();
+    window.switchView = window.switchView; // глобально
+  })();
+</script>
+</body>
+</html>rt(`Пользователь "${nickToBan}" забанен.`);
+                if (currentUser && currentUser.nick.toLowerCase() === nickToBan.toLowerCase()) {
+                    alert('⛔ Вы забанены! Доступ ограничен.');
+                    localStorage.removeItem('chat_nick');
+                    location.reload();
+                }
+            } else {
+                alert('Этот пользователь уже в бане.');
+            }
+            banNicknameInput.value = '';
+        }
+
+        // --------------------------------------------------------------
+        // 6. ОБРАБОТЧИКИ СОБЫТИЙ
+        // --------------------------------------------------------------
+        // Вкладки
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const chat = e.currentTarget.dataset.chat;
+                subscribeToChat(chat);
+            });
+        });
+
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        toggleAdminBtn.addEventListener('click', toggleAdminPanel);
+        closeAdminBtn.addEventListener('click', () => {
+            adminPanel.classList.remove('visible');
+            isAdmin = false;
+        });
+        banUserBtn.addEventListener('click', banUser);
+
+        changeNickBtn.addEventListener('click', changeNickname);
+        displayNick.addEventListener('click', changeNickname);
+
+        // --------------------------------------------------------------
+        // 7. ЗАПУСК
+        // --------------------------------------------------------------
+        initAuth();
+
+        // Подписываемся на начальный чат (general) после авторизации
+        auth.onAuthStateChanged((user) => {
+            if (user) {
+                subscribeToChat('general');
+            }
+        });
+
+        // Периодическое обновление онлайн-статуса (на случай, если onDisconnect не сработал)
+        setInterval(() => {
+            if (currentUser) {
+                updateOnlineStatus(true);
+            }
+        }, 30000); // каждые 30 секунд
+
+        // Очищаем старые записи при закрытии окна (дополнительная страховка)
+        window.addEventListener('beforeunload', () => {
+            if (currentUser) {
+                db.ref(`onlineUsers/${currentUser.uid}`).remove();
+            }
+        });
+{
+  "rules": {
+    ".read": "auth != null",
+    ".write": "auth != null",
+    "onlineUsers": {
+      ".indexOn": ["lastActive"]
+    }
+  }
+}
+
+    })();
+</script>
+</body>
+</html>
