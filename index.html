@@ -6,7 +6,6 @@
   <title>Chat Manager Online</title>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <style>
-    /* Стили скопированы из предыдущей версии, почти без изменений */
     :root {
       --bg: #0f0f1a; --surface: #1a1a2e; --surface2: #22223a; --primary: #6c5ce7;
       --primary-hover: #7d6ff0; --accent: #00cec9; --text: #e0e0e0; --text2: #b0b0b0;
@@ -61,12 +60,12 @@
 <script>
   (function() {
     // ---------- Конфигурация ----------
-    const SERVER_URL = https: 'mesenjer2.onrender.com'; // Замени на свой URL после деплоя
+    const SERVER_URL = 'https://mesenjer2.onrender.com'; 
     let currentUser = null;
     let socket = null;
     let activeView = 'login';
     let activeChatPartner = null;
-    let messageCache = {}; // conversationId -> массив сообщений
+    let messageCache = {}; 
 
     // ---------- UI хелперы ----------
     function showToast(text, duration = 2500) {
@@ -122,11 +121,9 @@
       socket.on('new message', (msg) => {
         const convId = msg.conversationId;
         if (!messageCache[convId]) messageCache[convId] = [];
-        // Избегаем дубликатов
         if (!messageCache[convId].find(m => m._id === msg._id)) {
           messageCache[convId].push(msg);
         }
-        // Если сейчас открыт этот чат – перерисовать
         if (activeView === 'chat' && activeChatPartner) {
           const currentConvId = getConversationId(currentUser.username, activeChatPartner);
           if (currentConvId === convId) renderChatWindow();
@@ -212,10 +209,8 @@
 
     async function renderChatsList() {
       if (!currentUser) return;
-      // Загрузим все переписки пользователя (можно через отдельный запрос, но мы уже имеем кэш)
       const mc = document.getElementById('mainContent');
       let html = '<div class="section-title">📩 Чаты</div>';
-      // Получим список conversationId из messageCache, где участвует currentUser
       const myConvs = Object.keys(messageCache).filter(cid => cid.includes(currentUser.username));
       if (myConvs.length === 0) {
         html += '<p style="text-align:center;color:var(--text2);">Нет чатов</p>';
@@ -237,12 +232,9 @@
     async function renderChatWindow() {
       if (!currentUser || !activeChatPartner) return;
       const convId = getConversationId(currentUser.username, activeChatPartner);
-      // Загрузим сообщения с сервера (если не в кэше) – упростим, будем полагаться на кэш и сокет
       if (!messageCache[convId]) {
-        // Можно запросить историю, но для простоты пропустим
         messageCache[convId] = [];
       }
-      // Помечаем как прочитанные
       socket.emit('mark read', { conversationId: convId, user: currentUser.username });
       messageCache[convId].forEach(m => { if (m.to === currentUser.username) m.read = true; });
 
@@ -376,87 +368,11 @@
       logout();
     };
 
-    // Инициализация
     renderHeader();
     renderMainContent();
-    window.switchView = window.switchView; // глобально
+    window.switchView = window.switchView; 
   })();
 </script>
 </body>
-</html>rt(`Пользователь "${nickToBan}" забанен.`);
-                if (currentUser && currentUser.nick.toLowerCase() === nickToBan.toLowerCase()) {
-                    alert('⛔ Вы забанены! Доступ ограничен.');
-                    localStorage.removeItem('chat_nick');
-                    location.reload();
-                }
-            } else {
-                alert('Этот пользователь уже в бане.');
-            }
-            banNicknameInput.value = '';
-        }
-
-        // --------------------------------------------------------------
-        // 6. ОБРАБОТЧИКИ СОБЫТИЙ
-        // --------------------------------------------------------------
-        // Вкладки
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', (e) => {
-                const chat = e.currentTarget.dataset.chat;
-                subscribeToChat(chat);
-            });
-        });
-
-        sendBtn.addEventListener('click', sendMessage);
-        messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendMessage();
-        });
-
-        toggleAdminBtn.addEventListener('click', toggleAdminPanel);
-        closeAdminBtn.addEventListener('click', () => {
-            adminPanel.classList.remove('visible');
-            isAdmin = false;
-        });
-        banUserBtn.addEventListener('click', banUser);
-
-        changeNickBtn.addEventListener('click', changeNickname);
-        displayNick.addEventListener('click', changeNickname);
-
-        // --------------------------------------------------------------
-        // 7. ЗАПУСК
-        // --------------------------------------------------------------
-        initAuth();
-
-        // Подписываемся на начальный чат (general) после авторизации
-        auth.onAuthStateChanged((user) => {
-            if (user) {
-                subscribeToChat('general');
-            }
-        });
-
-        // Периодическое обновление онлайн-статуса (на случай, если onDisconnect не сработал)
-        setInterval(() => {
-            if (currentUser) {
-                updateOnlineStatus(true);
-            }
-        }, 30000); // каждые 30 секунд
-
-        // Очищаем старые записи при закрытии окна (дополнительная страховка)
-        window.addEventListener('beforeunload', () => {
-            if (currentUser) {
-                db.ref(`onlineUsers/${currentUser.uid}`).remove();
-            }
-        });
-{
-  "rules": {
-    ".read": "auth != null",
-    ".write": "auth != null",
-    "onlineUsers": {
-      ".indexOn": ["lastActive"]
-    }
-  }
-}
-
-    })();
-</script>
-</body>
 </html>
+
